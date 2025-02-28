@@ -96,6 +96,7 @@ spacing: 150%,
 
 #HeaderBlank("Основная часть",1)
 #lorem(30)
+(рисунок 1)
 #Image("image/cat_sample.jpeg", 1, 80%, "пример изображения")
 
 #HeaderNumbered("Актуальность темы исследования", 2)
