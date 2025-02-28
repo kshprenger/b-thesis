@@ -1,7 +1,6 @@
 #set page(
   paper: "a4",
   margin: (top: 20mm, bottom: 20mm, left: 30mm, right: 15mm),
-  numbering: "1",
 )
 
 #set text(
@@ -11,6 +10,7 @@ spacing: 150%,
 )
 
 #set par(
+  first-line-indent: (amount: 1.25cm, all: true),
   justify: true,
   spacing: 1.25cm,
 )
@@ -88,7 +88,7 @@ spacing: 150%,
 #pagebreak()
 
 #HeaderBlank("Введение",1)
-#lorem(30)
+#lorem(30)\
 
 #lorem(10)
 
