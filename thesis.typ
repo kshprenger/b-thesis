@@ -322,14 +322,72 @@ MWCAS - это операция для синхронизации памяти, 
 Во второй фазе, поток , в случае, если первая фаза прошла успешно. Последовательно меняет значение в атомарных ячейках с указателя на дескриптор своей транзакции на новое значение. Иначе, так как поток мог занять часть ячеек своей блокировкой, он последовательно снимает эти блокировки, возращая ячейкам их старые значения.
 
 
-``` rust
-fn mwcas()
+```rust
+fn mwcas(cd: *MWCASDesciptor) -> bool{
+	// Фаза 1
+	if (cd.status == UNDECIDED){
+		let status = SUCCESS
+		for i = 0; i < cd.N; i++{
+			if status != SUCCESS{
+				break;
+			}
+		}
+		loop{
+			let atomic = cd.atomics[i]
+			let value = (atomic.address, atomic.old_value, cd) // ???
+
+			if isDescriptor(value){
+				// Другая транзакция в прогрессе
+				if(value != cd){
+					// Помощь в завершении
+					mwcas(value);
+					// Продолжение текущей транзакции
+					continue;
+				}
+			}else{
+				if value != atomic.old_value{
+				// Другой поток успел завершить транзакцию
+					status = FAILED
+				}
+				// Захват ячейки прошёл успешно
+				break;
+			}
+		}
+		cd.status.cas(UNDECIDED, status)
+	}
+	// Фаза 2
+	let suc = cd.status.load() == SUCCESS
+	for i = 0 ; i < cd.N; i++ {
+		// В зависимости от результата первой фазы
+		// значениие устанавливается на новое
+		// или возвраащается старое
+		let new_value = if suc {
+			cd.atomics[i].new_value
+		} else{
+			cd.atomics[i].old_value
+		}
+		cd.atomics[i].address.cas(
+			cd,
+			new_value
+		)
+	}
+}
 ```
 
 Операция mwcas_read отличается от обычной операции атомарно чтения в том, что во время считывания значения, она может увидеть адрес, яыляющийся адресом дескриптора транзакции, которая находится  в прогрессе исполнения. В этом случае, операция чтения помогает другой транзакции завершиться, после чего пробует считать значение ещё раз.
 
 ```rust
-fn mwcas_read()
+fn mwcas_read(atomic: AtomicPtr<T>) -> T{
+	loop{
+		let value = atomic.read()
+		if isDesciptor(value){
+			// Помощь в завершении транзакции
+			mwcas(value)
+		} else{
+			return (*value)
+		}
+	}
+}
 ```
 
 
