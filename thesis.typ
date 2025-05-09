@@ -393,38 +393,41 @@ fn mwcas_read(atomic: AtomicPtr<T>) -> T{
 
 
 
-#HeaderNumbered("Пример синхронизации с использованием транзакционной памяти", 4)
+#HeaderNumbered("Cинхронизация с использованием транзакционной памяти", 4)
 
-Пример исполнения транзакции для нескольких атомарных ячеек памяти может выглядеть следующим образом:
+Пример исполнения транзакции для трёх атомарных ячеек памяти, где каждый поток использует лишь часть из них может выглядеть следующим образом:
 
 ```rust
 // Ячейки располагаются в общей для потоков памяти
-let state_1 = Atomic<State>
-let state_2 = Atomic<State>
+// Порядок обращений соостетвует порядку
+// определения ячеек в программе
+let state_A = Atomic<State>
+let state_B = Atomic<State>
+let state_C = Atomic<State>
 
-// Вызывается из разных потоков
-fn doMultiWordTransaction(){
+fn doABTransaction(){
 	while(true){
-		// Операции чтения не пересекаются с transaction()
-		let old_state_1 = state_1.mwcas_read()
-		let old_state_2 = state_2.mwcas_read()
+		let old_state_A = mwcas_read(&state_A)
+		let old_state_B = mwcas_read(&state_B)
 
-		let modified_state_1 = modify(old_state_1)
-		let modified_state_2 = modify(old_state_2)
+		let modified_state_A = modify(old_state_A)
+		let modified_state_B = modify(old_state_B)
 
-		// На каждую транзакцию нужна отдельная аллокация
+		// На каждую транзакцию нужна
+		// отдельная аллокация дескриптора
 		let mwcas = new Mwcas
 
 		// Транзакция атомарно заменяет ожидаемые значения
 		// на модифицированные  копии.
+		// Ссылки на ячейки передаются в нужном порядке
 		// В случае, если наблюдаемое старое значение
 		// изменилось, транзакция помогает завершиться другой
 		// возможной транзакции и сообщает о
 		// неуспешном завершении
 		if(mwcas.transaction(
-			memory_cell = [state_1, state_2]
-			expected_states = [old_state1, old_state2],
-			new_states = [modified_state_1, modified_state_2],
+			memory_cell = [state_A, state_B]
+			expected_states = [old_state_A, old_state_B],
+			new_states = [modified_state_A, modified_state_B],
 		)){
 			// Поток успешно заменил все значения
 			break;
@@ -436,9 +439,31 @@ fn doMultiWordTransaction(){
 	}
 }
 
+fn doBCTransaction(){
+	while(true){
+		let old_state_B = mwcas_read(&state_B)
+		let old_state_C = mwcas_read(&state_C)
+
+		let modified_state_B = modify(old_state_B)
+		let modified_state_C = modify(old_state_C)
+
+		let mwcas = new Mwcas
+
+		if(mwcas.transaction(
+			memory_cell = [state_B, state_C]
+			expected_states = [old_state_B, old_state_C],
+			new_states = [modified_state_B, modified_state_C],
+		)){
+			break;
+		} else{
+			continue;
+		}
+	}
+}
+
 fn main() {
-	let thread_1 = spawn(doMultiWordTransaction)
-	let thread_2 = spawn(doMultiWordTransaction)
+	let thread_1 = spawn(doABTransaction)
+	let thread_2 = spawn(doBCTransaction)
 
 	thread_1.join();
 	thread_2.join();
