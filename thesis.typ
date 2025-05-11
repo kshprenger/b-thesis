@@ -748,6 +748,142 @@ struct Slot<T> {
 
 #HeaderNumbered("Алгоритм канала", 3)
 
+```rust
+ pub fn send(&self, value: T) -> Result<usize, SendError<T>> {
+    let shared = &self.shared;
+    let guard = crossbeam_epoch::pin();
+    loop {
+        if shared.rx_cnt.read(&guard) == 0 {
+            return Err(SendError(value));
+        }
+
+        let pos = shared.pos.read(&guard);
+        let rem = shared.rx_cnt.read(&guard);
+        let idx = (pos & self.shared.mask as u64) as usize;
+
+        let slot = &shared.buffer[idx];
+        let slot_rem = slot.rem.read(&guard);
+        let slot_pos = slot.pos.read(&guard);
+        let slot_val = slot.val.read(&guard);
+        let new_val = value.clone();
+
+        let waiters = shared.waiters.read(&guard);
+
+        let mut mwcas = MwCas::new();
+
+        mwcas.compare_exchange_u64(&shared.pos, pos, pos.wrapping_add(1));
+        mwcas.compare_exchange_u64(&slot.pos, slot_pos, pos);
+        mwcas.compare_exchange_u64(&slot.rem, slot_rem, rem);
+        mwcas.compare_exchange(&slot.val, slot_val, Some(new_val));
+        mwcas.compare_exchange_u64(&shared.waiters, waiters, null_mut::<Waiter>() as u64);
+
+        if mwcas.exec(&guard) {
+            shared.notify_rx(waiters as *mut Waiter);
+            return Ok(rem as usize);
+        }
+    }
+}
+```
+
+
+```rust
+fn recv_ref(
+        &mut self,
+        waiter: Option<(&UnsafeCell<Waiter>, &Waker)>,
+    ) -> Result<Option<T>, TryRecvError> {
+        let guard = crossbeam_epoch::pin();
+        let idx = (self.next & self.shared.mask as u64) as usize;
+        let slot = &self.shared.buffer[idx];
+
+        loop {
+            let slot_pos = slot.pos.read(&guard);
+            if slot_pos != self.next {
+                let mut old_waker = None;
+
+                let next_pos = slot_pos.wrapping_add(self.shared.buffer.len() as u64);
+
+                if next_pos == self.next {
+                    // At this point the channel is empty for *this* receiver. If
+                    // it's been closed, then that's what we return, otherwise we
+                    // set a waker and return empty.
+                    if self.shared.closed.read(&guard) == true as u64 {
+                        return Err(TryRecvError::Closed);
+                    }
+
+                    // Store the waker
+                    if let Some((waiter, waker)) = waiter {
+                        // Safety: called while locked.
+                        unsafe {
+                            // Only queue if not already queued
+                            waiter.with_mut(|ptr| {
+                                // If there is no waker **or** if the currently
+                                // stored waker references a **different** task,
+                                // track the tasks' waker to be notified on
+                                // receipt of a new value.
+                                match (*ptr).waker {
+                                    Some(ref w) if w.will_wake(waker) => {}
+                                    _ => {
+                                        old_waker = std::mem::replace(
+                                            &mut (*ptr).waker,
+                                            Some(waker.clone()),
+                                        );
+                                    }
+                                }
+
+                                let waiters = self.shared.waiters.read(&guard) as *mut Waiter;
+
+                                (*ptr).next = waiters;
+                            });
+
+                            let mut cas = MwCas::new();
+                            let waiter_ptr = waiter.get();
+                            cas.compare_exchange_u64(
+                                &self.shared.waiters,
+                                (*waiter_ptr).next as u64,
+                                waiter_ptr as u64,
+                            );
+                            if cas.exec(&guard) {
+                                drop(old_waker);
+                                return Err(TryRecvError::Empty);
+                            }
+                            continue;
+                        }
+                    }
+                }
+
+                // At this point, the receiver has lagged behind the sender by
+                // more than the channel capacity. The receiver will attempt to
+                // catch up by skipping dropped messages and setting the
+                // internal cursor to the **oldest** message stored by the
+                // channel.
+                let next = self
+                    .shared
+                    .pos
+                    .read(&guard)
+                    .wrapping_sub(self.shared.buffer.len() as u64);
+
+                let missed = next.wrapping_sub(self.next);
+
+                // The receiver is slow but no values have been missed
+                if missed == 0 {
+                    self.next = self.next.wrapping_add(1);
+                    return Ok((*slot.val.read(&guard)).clone());
+                }
+
+                self.next = next;
+
+                return Err(TryRecvError::Lagged(missed));
+            }
+
+            self.next = self.next.wrapping_add(1);
+            break;
+        }
+
+        Ok((*slot.val.read(&guard)).clone())
+    }
+```
+
+
 
 // TODO пвсевдокод с mwcas и рассказать про строение операций
 
