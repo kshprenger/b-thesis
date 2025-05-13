@@ -68,6 +68,7 @@ spacing: 300%,
   fill: luma(240),
   inset: 10pt,
   radius: 4pt,
+  width: 100%,
 )
 
 #show raw.where(block: true): set text(spacing: 200%)
@@ -198,7 +199,7 @@ fn main() {
 	thread_2.join();
 }
 ```
-
+Таблица 1 – Применение блокирующей синхронизации.
 #pagebreak()
 
 #HeaderNumbered("Неблокирующая синхронизация", 4)
@@ -269,6 +270,8 @@ fn main() {
 	thread_2.join();
 }
 ```
+Таблица 2 – Применение неблокирующей синхронизации.
+
 
 Очевидно, что при таком подходе обязательно будет существовать поток или потоки, успешно завершающиие свои транзакции, при этом остальным потокам нужно будет лишь повторить попытку.
 Синхронизация в описанном примере происходит в точках `state.atomic_read()` и `state.atomic_cas()`. При этом модификация состояния может происходить в параллель.
@@ -373,6 +376,8 @@ fn mwcas(cd: *MWCASDesciptor) -> bool{
 	}
 }
 ```
+Таблица 3 – Алгоритм MWCAS программной транзакционной памяти.
+
 
 Операция mwcas_read отличается от обычной операции атомарно чтения в том, что во время считывания значения, она может увидеть адрес, яыляющийся адресом дескриптора транзакции, которая находится  в прогрессе исполнения. В этом случае, операция чтения помогает другой транзакции завершиться, после чего пробует считать значение ещё раз.
 
@@ -389,8 +394,7 @@ fn mwcas_read(atomic: AtomicPtr<T>) -> T{
 	}
 }
 ```
-
-
+Таблица 4 – Алгоритм чтения в программной транзакционной памяти.
 
 
 #HeaderNumbered("Cинхронизация с использованием транзакционной памяти", 4)
@@ -469,6 +473,7 @@ fn main() {
 	thread_2.join();
 }
 ```
+Таблица 5 – Применение программной транзакционной памяти.
 
 Можно видеть, что данный алгоритм не иммет принципиальных различий с классической неблокирующей синхронизацией. Добавляется дополнительный объект координирующий множественную транзацкию - mwcas. Единственное необходимое условие использования - соблюдение общего глобального порядка использования ячеек памяти в тразакциях.
 
@@ -501,6 +506,7 @@ pub struct Receiver<T> {
 }
 
 ```
+Таблица 6 – Структуры управляющие каналом.
 
 Общее состояние содержит в себе:
 1. Память самой очереди: она представляется в виде обычного массива слотов (структура типа Slot), логически представленного в виде кольцевого буффера (buffer). Каждому слоту в соотетсвие ставится RwLock - блокирующий примитив синхронизации позволяющий производит параллельное чтение, только при отсутвии одновременной записи. Доступ ко всем полям отдельного слота синхронизаируется с помощью данного примитива.
@@ -555,6 +561,8 @@ struct Slot<T> {
     val: UnsafeCell<Option<T>>,
 }
 ```
+Таблица 7 – Внутреннее состояние канала.
+
 
 #HeaderNumbered("Алгоритм канала",3)
 
@@ -570,22 +578,25 @@ struct Slot<T> {
 Псевдокод операции:
 
 ```rust
-fn send(newValue){
+fn send(newValue: T){
 	// Захват общей блокировки очереди
-	tail.lock()
+	let tail = tail.lock()
 
 	// Захват блокировки слота,
 	// в который будет произведена запись
-	buffer[nextId].lockWrite()
+	let slot = buffer[nextId].lockWrite()
 
 	// Запись нового значения
 	buffer[nextId].value = newValue
 
 	// Обновление мета-информации и необходимых счётчиков
-	...
+	slot.pos = tail.pos + 1
+	slot.rem = tail.rx_cnt
+	slot.val = newValue
 
 	// Освобождение блокировки слота
 	buffer[nextId].unlock()
+
 	// Запуск на исполнение
 	// всех ожидающих задач потоков-читателей
 	queue.notify_all()
@@ -594,13 +605,14 @@ fn send(newValue){
 	tail.unlock()
 }
 ```
+Таблица 8 – Блокирующий алгоритм отправки сообщения.
+
 
 Операция получения - асинхронная. При попытке получить сообщение, поток-читатель может обнаружить ситуацию при которой готовых сообщений в очереди нет. Это может произойти как сразу при совпадении локального счётчика потока-отправителя и счётчика позиции слота, так и после добавления дополнительного круга длины, в случае, описанном ранее. В этом случае поток-читатель добавляет задачу на очередную проверку очереди в специальную очередь ожидания. Потоки-отправители после отправки сообщений проверяют эту очередь и запланирую на исполнение все оставшиейся в ней задачи.
 
 Псевдокод выполнения операции:
 
 ```rust
-
 // taskHandler - структура, отвечающая за планирование
 // задачи, вызвавшей recv, на исполнение
 
@@ -624,40 +636,44 @@ async fn recv(taskHandler) -> T {
 		let next_pos = slot.pos + buffer.len()
 
 		// Позиция потока-читателя совпадает
-		// с суммой позициии слота и длины одного круга очереди
+		// с суммой позициии слота
+		// и длины одного круга очереди.
 		// В таком случае готового значения ещё нет.
-		// Поток оставляет задачу в очереди ожидания
+		// Поток оставляет задачу в очереди ожидания.
 		if self.next == next_pos{
 			qeueu.park(taskHandler)
 		}
 
 		// Поток-читатель утанавливает указатель
-		// на самое старое текущее значение в канале
-		// Все остальные значения считаются пропущенными
+		// на самое старое текущее значение в канале.
+		// Все остальные значения считаются пропущенными.
 		let next = tail.pos - buffer.len()
 		let missed = next - self.next
 		let self.next = next
 
-		// Блокировка состояния канала и слота
+		// Блокировка состояния канала и слота.
 		slot.unlockRead()
 		tail.unlock()
 
 	} else{
 		// Если первая проверка показала,
-		// что текущее значение self.next совпадает с позицией слота,
-		// это означает, что поток читает актуальную информацию,
-		// В таком случае он инкрементирует локальный счётчик и возвращает значение
+		// что текущее значение self.next
+		// совпадает с позицией слота, это означает,
+		// что поток читает актуальную информацию.
+		// В таком случае он инкрементирует локальный счётчик
+		// и возвращает значение.
 		let result = slot.value
 		slot.unlock()
 		self.next++
 		return result
 	}
 
-
 }
 ```
+Таблица 9 – Блокирующий алгоритм получения сообщения.
 
-Новый способ синхронизации позволит полностью избавиться от блокирующих примитивов Mutex и RwLock
+
+Новый способ синхронизации позволит полностью избавиться от блокирующих примитивов Mutex и RwLock, составляющих основные проблемные точки при масштабировании использования канала.
 
 
 #HeaderNumbered("Анализ оптимального дизайна для очереди",2)
@@ -741,6 +757,8 @@ struct Slot<T> {
     val: HeapPointer<Option<T>>,
 }
 ```
+Таблица 10 – Внутреннее состояние канала c использованием транзакционной памяти.
+
 
 Теперь необходимо определить порядок обращений к ним. Он должен быть глобально единым для всех операций над каналом.
 
@@ -748,18 +766,28 @@ struct Slot<T> {
 
 #HeaderNumbered("Алгоритм канала", 3)
 
+В новом алгоритме вместо блокировки используется последовательное чтение состояние в порядке, определённом раньше, после чего оно модифицируется также, как и в блокирующей реализации, и производится множестввенная транзакция, в случае успеха которой происходит оповещение всей очереди ожидания.
+
 ```rust
- pub fn send(&self, value: T) -> Result<usize, SendError<T>> {
+ pub fn send(value: T) {
     let shared = &self.shared;
-    let guard = crossbeam_epoch::pin();
+
+    // Транзакционной памяти необходимо
+    // закрепление в памяти
+    // до использования в операциях.
+    let guard = new Guard;
+
     loop {
         if shared.rx_cnt.read(&guard) == 0 {
-            return Err(SendError(value));
+            return Err;
         }
+
+        // Считывание необходимого состояние
+        // всех ячеек
 
         let pos = shared.pos.read(&guard);
         let rem = shared.rx_cnt.read(&guard);
-        let idx = (pos & self.shared.mask as u64) as usize;
+        let idx = pos & shared.mask;
 
         let slot = &shared.buffer[idx];
         let slot_rem = slot.rem.read(&guard);
@@ -769,123 +797,105 @@ struct Slot<T> {
 
         let waiters = shared.waiters.read(&guard);
 
-        let mut mwcas = MwCas::new();
+        let mwcas = new Mwcas;
 
-        mwcas.compare_exchange_u64(&shared.pos, pos, pos.wrapping_add(1));
-        mwcas.compare_exchange_u64(&slot.pos, slot_pos, pos);
-        mwcas.compare_exchange_u64(&slot.rem, slot_rem, rem);
-        mwcas.compare_exchange(&slot.val, slot_val, Some(new_val));
-        mwcas.compare_exchange_u64(&shared.waiters, waiters, null_mut::<Waiter>() as u64);
+        // Описание и исполнение транзакции
+        mwcas.cas(&shared.pos, pos, pos + 1);
+        mwcas.cas(&slot.pos, slot_pos, pos);
+        mwcas.cas(&slot.rem, slot_rem, rem);
+        mwcas.cas(&slot.val, slot_val, Some(new_val));
+        mwcas.cas(&shared.waiters, waiters, nullprt);
 
         if mwcas.exec(&guard) {
-            shared.notify_rx(waiters as *mut Waiter);
-            return Ok(rem as usize);
+            shared.queue.notify_all();
+            return rem;
         }
     }
 }
 ```
 
+Таблица 11 – Алгоритм неблокирующей отправки сообщения с исопльзованием транзакционной памяти.
+
 
 ```rust
-fn recv_ref(
-        &mut self,
-        waiter: Option<(&UnsafeCell<Waiter>, &Waker)>,
-    ) -> Result<Option<T>, TryRecvError> {
-        let guard = crossbeam_epoch::pin();
-        let idx = (self.next & self.shared.mask as u64) as usize;
-        let slot = &self.shared.buffer[idx];
+fn try_recv(taskHandler) -> T {
+	// Закрепление потока в памяти для транзакции
+	let guard = new Guard;
 
-        loop {
-            let slot_pos = slot.pos.read(&guard);
-            if slot_pos != self.next {
-                let mut old_waker = None;
+	let idx = self.next & shared.mask;
+	let slot = &shared.buffer[idx];
+	loop {
+	    let slot_pos = slot.pos.read(&guard);
 
-                let next_pos = slot_pos.wrapping_add(self.shared.buffer.len() as u64);
+	    // Произошло отставание
+	    // Поток-ситатель добавляет один круг очереди
+	    if slot_pos != self.next {
+        let mut old_waker = None;
 
-                if next_pos == self.next {
-                    // At this point the channel is empty for *this* receiver. If
-                    // it's been closed, then that's what we return, otherwise we
-                    // set a waker and return empty.
-                    if self.shared.closed.read(&guard) == true as u64 {
-                        return Err(TryRecvError::Closed);
-                    }
+        let next_pos = slot_pos+shared.buffer.len();
 
-                    // Store the waker
-                    if let Some((waiter, waker)) = waiter {
-                        // Safety: called while locked.
-                        unsafe {
-                            // Only queue if not already queued
-                            waiter.with_mut(|ptr| {
-                                // If there is no waker **or** if the currently
-                                // stored waker references a **different** task,
-                                // track the tasks' waker to be notified on
-                                // receipt of a new value.
-                                match (*ptr).waker {
-                                    Some(ref w) if w.will_wake(waker) => {}
-                                    _ => {
-                                        old_waker = std::mem::replace(
-                                            &mut (*ptr).waker,
-                                            Some(waker.clone()),
-                                        );
-                                    }
-                                }
+        // Если позиция совпала
+        // это означает одно из двух:
+        // 1) Канал - закрыт
+        // 2) Нет новых значений
+        if next_pos == self.next {
+			    // Канал для данного получателя пустой
+			    // происходит отмена операции
+			    if self.shared.closed.read(&guard) == true{
+			        return Err(Closed);
+			    }
 
-                                let waiters = self.shared.waiters.read(&guard) as *mut Waiter;
+			    // В противном случае происходит
+			    // попытка добавления задачи
+			    // в голову очереди
+			    let waiters = shared.waiters.read(&guard);
+			    waiters.next = taskHandler
 
-                                (*ptr).next = waiters;
-                            });
+			    let cas = new Mwcas;
+	        cas.cas(
+	            waiters,
+	            (*waiter_ptr).next as u64,
+	            waiter_ptr as u64,
+	        );
 
-                            let mut cas = MwCas::new();
-                            let waiter_ptr = waiter.get();
-                            cas.compare_exchange_u64(
-                                &self.shared.waiters,
-                                (*waiter_ptr).next as u64,
-                                waiter_ptr as u64,
-                            );
-                            if cas.exec(&guard) {
-                                drop(old_waker);
-                                return Err(TryRecvError::Empty);
-                            }
-                            continue;
-                        }
-                    }
-                }
+        // Если поток успешно выполнил
+        // транзакцию, ничего больше не происходит.
+        // В противном случае, необходимо проверить
+        // канал на наличие нового значения
+	        if cas.exec(&guard) {
+	            return Err(Empty);
+	        }
+	        continue;
+		    }
 
-                // At this point, the receiver has lagged behind the sender by
-                // more than the channel capacity. The receiver will attempt to
-                // catch up by skipping dropped messages and setting the
-                // internal cursor to the **oldest** message stored by the
-                // channel.
-                let next = self
-                    .shared
-                    .pos
-                    .read(&guard)
-                    .wrapping_sub(self.shared.buffer.len() as u64);
+	// На
+    let next = shared
+        .pos
+        .read(&guard)
+        - shared.buffer.len();
 
-                let missed = next.wrapping_sub(self.next);
+    let missed = next - self.next;
 
-                // The receiver is slow but no values have been missed
-                if missed == 0 {
-                    self.next = self.next.wrapping_add(1);
-                    return Ok((*slot.val.read(&guard)).clone());
-                }
-
-                self.next = next;
-
-                return Err(TryRecvError::Lagged(missed));
-            }
-
-            self.next = self.next.wrapping_add(1);
-            break;
-        }
-
-        Ok((*slot.val.read(&guard)).clone())
+    // The receiver is slow but no values have been missed
+    if missed == 0 {
+        self.next = self.next.wrapping_add(1);
+        return Ok((*slot.val.read(&guard)).clone());
     }
+
+    self.next = next;
+
+    return Err(TryRecvError::Lagged(missed));
+    }
+
+	self.next = self.next.wrapping_add(1);
+	break;
+}
+
+Ok((*slot.val.read(&guard)).clone())
+}
 ```
+Таблица 12 – Алгоритм неблокирующего получения сообщения с иcпользованием транзакционной памяти.
 
-
-
-// TODO пвсевдокод с mwcas и рассказать про строение операций
 
 #HeaderBlank("Сравнительный анализ производительности",1)
 
