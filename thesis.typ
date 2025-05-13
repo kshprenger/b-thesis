@@ -914,7 +914,19 @@ Ok((*slot.val.read(&guard)).clone())
 #pagebreak()
 
 #HeaderBlank("Список использованных источников",1)
-#lorem(30)
+1. Требования к ВКР [Электронный ресурс] – URL: \ https://student.itmo.ru/files/1314 (дата обращения: 07.03.2024).
+2. Документация фреймворка Tokio [Электронный ресурс] – URL: \ https://docs.rs/tokio/latest/tokio/index.html (дата обращения: 31.03.2024).
+3. Документация по работе с атомарными переменными в Rust [Электронный ресурс] – URL: https://doc.rust-lang.org/std/sync/atomic (дата обращения: 31.03.2024).
+4. The Art of Multiprocessor Programming by Maurice Herlihy & Nir Shavit - 2008
+5. Timothy L. Harris, Keir Fraser and Ian A. Pratt, A Practical Multi-Word Compare-and-Swap Operation [Электронный ресурс] – URL: https://www.cl.cam.ac.uk/research/srg/netos/papers/2002-casn.pdf (дата обращения: 13.04.2024).
+6. Rachid Guerraoui, Alex Kogan, Virendra J. Marathe, Igor Zablotchi, Efficient Multi-word Compare and Swap [Электронный ресурс] – URL: https://arxiv.org/pdf/2008.02527 (дата обращения: 13.04.2024).
+7. Tianzheng Wang, Justin Levandoski, Per-Ake Larson, Easy Lock-Free Indexing in Non-Volatile Memory [Электронный ресурс] – URL: https://www2.cs.sfu.ca/~tzwang/pmwcas.pdf (дата обращения: 21.04.2024).
+8. Nikita Koval, Dan Alistarh, Roman Elizarov, FAST AND SCALABLE CHANNELS IN KOTLIN COROUTINES  [Электронный ресурс] – URL: https://arxiv.org/pdf/2211.04986 (дата обращения: 15.03.2024).
+9. Nikita Koval — Synchronization primitives can be faster with SegmentQueueSynchronizer [Электронный ресурс] – URL: https://2020.hydraconf.com/2020/msk/talks/5vknrc3qqnuplsd9mi9baq/ (дата обращения: 20.03.2024).
+10. Maurice Herlihy, J. Eliot B. Moss, Transactional Memory: Architectural Support for Lock-Free Data Structures [Электронный ресурс] – URL: https://cs.brown.edu/~mph/HerlihyM93/herlihy93transactional.pdf (дата обращения: 21.04.2024).
+11. Tim Harris, Simon Marlow, Simon Peyton Jones, Maurice Herlihy, Composable Memory Transactions [Электронный ресурс] – URL: https://cs.brown.edu/people/mph/HarrisMPJH05/stm.pdf (дата обращения: 20.04.2024).
+12. Lock-free структуры данных [Электронный ресурс] – URL: https://habr.com/en/post/195770/ (дата обращения: 14.04.2024).
+
 
 #pagebreak()
 
