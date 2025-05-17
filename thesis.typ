@@ -179,21 +179,21 @@ spacing: 300%,
 
 ```rust
 // Располагается в общей для потоков памяти
-let mutex = Mutex::new()
+let mutex = Mutex::new();
 
 // Вызывается разными потоками
 fn doCriticalSection(){
 	{
-		mutex.lock()
+		mutex.lock();
 		// Исполнение критической секции
-		mutex.unlock()
+		mutex.unlock();
 	}
 }
 
 
 fn main() {
-	let thread_1 = spawn(doCriticalSection)
-	let thread_2 = spawn(doCriticalSection)
+	let thread_1 = spawn(doCriticalSection);
+	let thread_2 = spawn(doCriticalSection);
 
 	thread_1.join();
 	thread_2.join();
@@ -241,14 +241,14 @@ fn main() {
 В псеводокоде это можно представить так:
 ```rust
 // Располагается в общей для потоков памяти
-let state = Atomic<State>
+let state = Atomic<State>::new();
 
 // Вызывается из разных потоков
 fn doLockFreeOperation(){
 	while(true){
-		let old_state = state.atomic_read()
+		let old_state = state.atomic_read();
 
-		let modified_state = modify(old_state)
+		let modified_state = modify(old_state);
 
 		if(state.atomic_cas(old_state,modified_state)){
 			// За время транзакции состояние не изменилось
@@ -263,8 +263,8 @@ fn doLockFreeOperation(){
 }
 
 fn main() {
-	let thread_1 = spawn(doLockFreeOperation)
-	let thread_2 = spawn(doLockFreeOperation)
+	let thread_1 = spawn(doLockFreeOperation);
+	let thread_2 = spawn(doLockFreeOperation);
 
 	thread_1.join();
 	thread_2.join();
@@ -327,7 +327,7 @@ MWCAS - это операция для синхронизации памяти, 
 
 ```rust
 fn mwcas(cd: *MWCASDesciptor) -> bool{
-	// Фаза 1
+	// Этап 1
 	if (cd.status == UNDECIDED){
 		let status = SUCCESS
 		for i = 0; i < cd.N; i++{
@@ -336,8 +336,11 @@ fn mwcas(cd: *MWCASDesciptor) -> bool{
 			}
 		}
 		loop{
-			let atomic = cd.atomics[i]
-			let value = (atomic.address, atomic.old_value, cd) // ???
+			let atomic = cd.atomics[i];
+			let value = rdcss(
+				atomic.address,
+				atomic.old_value,
+				cd);
 
 			if isDescriptor(value){
 				// Другая транзакция в прогрессе
@@ -350,16 +353,16 @@ fn mwcas(cd: *MWCASDesciptor) -> bool{
 			}else{
 				if value != atomic.old_value{
 				// Другой поток успел завершить транзакцию
-					status = FAILED
+					status = FAILED;
 				}
 				// Захват ячейки прошёл успешно
 				break;
 			}
 		}
-		cd.status.cas(UNDECIDED, status)
+		cd.status.cas(UNDECIDED, status);
 	}
-	// Фаза 2
-	let suc = cd.status.load() == SUCCESS
+	// Этап 2
+	let suc = cd.status.load() == SUCCESS;
 	for i = 0 ; i < cd.N; i++ {
 		// В зависимости от результата первой фазы
 		// значениие устанавливается на новое
@@ -368,11 +371,11 @@ fn mwcas(cd: *MWCASDesciptor) -> bool{
 			cd.atomics[i].new_value
 		} else{
 			cd.atomics[i].old_value
-		}
+		};
 		cd.atomics[i].address.cas(
 			cd,
 			new_value
-		)
+		);
 	}
 }
 ```
@@ -384,12 +387,12 @@ fn mwcas(cd: *MWCASDesciptor) -> bool{
 ```rust
 fn mwcas_read(atomic: AtomicPtr<T>) -> T{
 	loop{
-		let value = atomic.read()
+		let value = atomic.read();
 		if isDesciptor(value){
 			// Помощь в завершении транзакции
-			mwcas(value)
+			mwcas(value);
 		} else{
-			return (*value)
+			return (*value);
 		}
 	}
 }
@@ -405,21 +408,21 @@ fn mwcas_read(atomic: AtomicPtr<T>) -> T{
 // Ячейки располагаются в общей для потоков памяти.
 // Порядок обращений соостетвует порядку
 // определения ячеек в программе.
-let state_A = Atomic<State>
-let state_B = Atomic<State>
-let state_C = Atomic<State>
+let state_A = Atomic<State>::new();
+let state_B = Atomic<State>::new();
+let state_C = Atomic<State>::new();
 
 fn doABTransaction(){
 	while(true){
-		let old_state_A = mwcas_read(&state_A)
-		let old_state_B = mwcas_read(&state_B)
+		let old_state_A = mwcas_read(&state_A);
+		let old_state_B = mwcas_read(&state_B);
 
-		let modified_state_A = modify(old_state_A)
-		let modified_state_B = modify(old_state_B)
+		let modified_state_A = modify(old_state_A);
+		let modified_state_B = modify(old_state_B);
 
 		// На каждую транзакцию нужна
 		// отдельная аллокация дескриптора
-		let mwcas = Mwcas::new()
+		let mwcas = Mwcas::new();
 
 		// Транзакция атомарно заменяет ожидаемые значения
 		// на модифицированные  копии.
@@ -445,11 +448,11 @@ fn doABTransaction(){
 
 fn doBCTransaction(){
 	while(true){
-		let old_state_B = mwcas_read(&state_B)
-		let old_state_C = mwcas_read(&state_C)
+		let old_state_B = mwcas_read(&state_B);
+		let old_state_C = mwcas_read(&state_C);
 
-		let modified_state_B = modify(old_state_B)
-		let modified_state_C = modify(old_state_C)
+		let modified_state_B = modify(old_state_B);
+		let modified_state_C = modify(old_state_C);
 
 		let mwcas = Mwcas::new()
 
@@ -550,7 +553,8 @@ struct Tail {
 
     closed: bool,
 
-    waiters: LinkedList<Waiter, <Waiter as linked_list::Link>::Target>,
+    waiters: LinkedList<Waiter, <Waiter as
+		     linked_list::Link>::Target>,
 }
 
 struct Slot<T> {
@@ -575,19 +579,19 @@ struct Slot<T> {
 Операция отправления - синхронная. Потоки-писатели не обязаны ждать потоков-получателей.
 В связи упомянутой раньше проблемой, при которой выделение памяти может привести к её неконтролируемогу росту, буффер очереди ограничен, и при этом новые сообщения, превышающие длину очереди перезаписывают старые. Потоки-читатели, не успевшие получить отправленные ранее сообщения, с помощью своего собственного локального счётчика позиции сообщений, обнаруживают неконсистентность и переводят счётчик на текущую актуальную позицию в очереди, добавляя к нему один круг длины очереди.
 
-Псевдокод операции:
+Ниже представлен псевдокод операции.
 
 ```rust
 fn send(newValue: T){
 	// Захват общей блокировки очереди
-	let tail = tail.lock()
+	let tail = shared.tail.lock()
 
 	// Захват блокировки слота,
 	// в который будет произведена запись
-	let slot = buffer[nextId].lockWrite()
+	let slot = shared.buffer[nextId].lockWrite()
 
 	// Запись нового значения
-	buffer[nextId].value = newValue
+	shared.buffer[nextId].value = newValue
 
 	// Обновление мета-информации и необходимых счётчиков
 	slot.pos = tail.pos + 1
@@ -595,14 +599,14 @@ fn send(newValue: T){
 	slot.val = newValue
 
 	// Освобождение блокировки слота
-	buffer[nextId].unlock()
+	shared.buffer[nextId].unlock()
 
 	// Запуск на исполнение
 	// всех ожидающих задач потоков-читателей
-	queue.notify_all()
+	shared.queue.notify_all()
 
 	// Общая разблокировка очереди
-	tail.unlock()
+	shared.tail.unlock()
 }
 ```
 Таблица 8 – Блокирующий алгоритм отправки сообщения.
@@ -616,10 +620,10 @@ fn send(newValue: T){
 // taskHandler - структура, отвечающая за планирование
 // задачи, вызвавшей recv, на исполнение
 
-async fn recv(taskHandler) -> T {
+async fn recv(t: taskHandler) -> Result<T> {
 
 	// Следующий слот на чтение значения
-	let slot = buffer[nextId]
+	let slot = shared.buffer[nextId]
 
 	// Блокировка слота на чтение
 	// Допускается параллельное чтение
@@ -628,9 +632,13 @@ async fn recv(taskHandler) -> T {
 	// Поток-читатель отстал от актуальной информации
 	// как минимум на один круг очереди
 	if slot.pos != self.next {
+		// Канал закрыт
+		if shared.closed{
+			return Err
+		}
 
 		// Блокировка состояния канала
-		tail.lock()
+		shared.tail.lock()
 
 		// Добавление одного круга очереди
 		let next_pos = slot.pos + buffer.len()
@@ -641,7 +649,7 @@ async fn recv(taskHandler) -> T {
 		// В таком случае готового значения ещё нет.
 		// Поток оставляет задачу в очереди ожидания.
 		if self.next == next_pos{
-			qeueu.park(taskHandler)
+			qeueu.park(t)
 		}
 
 		// Поток-читатель утанавливает указатель
@@ -653,14 +661,20 @@ async fn recv(taskHandler) -> T {
 
 		// Блокировка состояния канала и слота.
 		slot.unlockRead()
-		tail.unlock()
+		shared.tail.unlock()
+
+		if missed == 0{
+			return slot.value
+		}else{
+			return Err
+		}
 
 	} else{
 		// Если первая проверка показала,
 		// что текущее значение self.next
 		// совпадает с позицией слота, это означает,
 		// что поток читает актуальную информацию.
-		// В таком случае он инкрементирует локальный счётчик
+		// В таком случае инкрементируется локальный счётчик
 		// и возвращает значение.
 		let result = slot.value
 		slot.unlock()
@@ -770,13 +784,6 @@ struct Slot<T> {
 
 ```rust
  pub fn send(value: T) {
-    let shared = &self.shared;
-
-    // Транзакционной памяти необходимо
-    // закрепление в памяти
-    // до использования в операциях.
-    let guard = new Guard;
-
     loop {
         if shared.rx_cnt.read(&guard) == 0 {
             return Err;
@@ -785,17 +792,16 @@ struct Slot<T> {
         // Считывание необходимого состояние
         // всех ячеек
 
-        let pos = shared.pos.read(&guard);
-        let rem = shared.rx_cnt.read(&guard);
+        let pos = shared.pos.mwcas_read();
+        let rem = shared.rx_cnt.mwcas_read();
+        let waiters = shared.waiters.mwcas_read();
         let idx = pos & shared.mask;
 
         let slot = &shared.buffer[idx];
-        let slot_rem = slot.rem.read(&guard);
-        let slot_pos = slot.pos.read(&guard);
-        let slot_val = slot.val.read(&guard);
+        let slot_rem = slot.rem.mwcas_read();
+        let slot_pos = slot.pos.mwcas_read();
+        let slot_val = slot.val.mwcas_read();
         let new_val = value.clone();
-
-        let waiters = shared.waiters.read(&guard);
 
         let mwcas = new Mwcas;
 
@@ -803,7 +809,7 @@ struct Slot<T> {
         mwcas.cas(&shared.pos, pos, pos + 1);
         mwcas.cas(&slot.pos, slot_pos, pos);
         mwcas.cas(&slot.rem, slot_rem, rem);
-        mwcas.cas(&slot.val, slot_val, Some(new_val));
+        mwcas.cas(&slot.val, slot_val, new_val);
         mwcas.cas(&shared.waiters, waiters, nullprt);
 
         if mwcas.exec(&guard) {
@@ -816,83 +822,114 @@ struct Slot<T> {
 
 Таблица 11 – Алгоритм неблокирующей отправки сообщения с исопльзованием транзакционной памяти.
 
+В операции получения исследуется каждое возможное состояние канала, как и в блокирующей версии, и, перед возвратом каждого возможно значения/ошибки происходит полная проверка всего состояния через транзакцию: некоторые поля за время выполнения операции проверки очереди не должны были поменяться.
 
 ```rust
-fn try_recv(taskHandler) -> T {
-	// Закрепление потока в памяти для транзакции
-	let guard = new Guard;
-
+fn try_recv(t: taskHandler) -> Result<T> {
 	let idx = self.next & shared.mask;
 	let slot = &shared.buffer[idx];
+
 	loop {
-	    let slot_pos = slot.pos.read(&guard);
+		let closed_old = shared.closed.mwcas_read();
+		let waiters_old = shared.waiters.mwcas_read();
+		let slot_pos_old = slot.pos.mwcas_read();
+		let slot_val_ref_prev = slot.val.mwcas_read();
 
-	    // Произошло отставание
-	    // Поток-ситатель добавляет один круг очереди
-	    if slot_pos != self.next {
-        let mut old_waker = None;
+		let mwcas = MwCas::new();
 
-        let next_pos = slot_pos+shared.buffer.len();
+		// Произошло отставание
+		// Поток-ситатель добавляет один круг очереди
+		if slot_pos_old != self.next {
 
-        // Если позиция совпала
-        // это означает одно из двух:
-        // 1) Канал - закрыт
-        // 2) Нет новых значений
-        if next_pos == self.next {
-			    // Канал для данного получателя пустой
-			    // происходит отмена операции
-			    if self.shared.closed.read(&guard) == true{
-			        return Err(Closed);
-			    }
+		let next_pos = slot_pos+shared.buffer.len();
 
-			    // В противном случае происходит
-			    // попытка добавления задачи
-			    // в голову очереди
-			    let waiters = shared.waiters.read(&guard);
-			    waiters.next = taskHandler
+		// Если позиция совпала
+		// это означает одно из двух:
+		// 1) Канал - закрыт
+		// 2) Нет новых значений
+		if next_pos == self.next {
+			// Канал для данного получателя пустой
+			// происходит отмена операции
+			if closed_old == true{
+		mwcas.cas(&shared.closed,closed_old,closed_old);
+		mwcas.cas(&shared.waiters,waiters_old,waiters_old);
+		mwcas.cas(&slot.pos,slot_pos_old,slot_pos_old);
+		mwcas.cas(&slot.val,slot_val_ref_prev,slot_val_ref_prev);
+			if mwcas.transaction(){
+					return Err;
+				} else{
+					continue;
+				}
+			}
 
-			    let cas = new Mwcas;
-	        cas.cas(
-	            waiters,
-	            (*waiter_ptr).next as u64,
-	            waiter_ptr as u64,
-	        );
+			// В противном случае происходит
+			// попытка добавления задачи
+			// в голову очереди
+			t.next = waiters_old
+		mwcas.cas(&shared.closed,closed_old,closed_old);
+		mwcas.cas(&shared.waiters,waiters_old,t);
+		mwcas.cas(&slot.pos,slot_pos_old,slot_pos_old);
+		mwcas.cas(&slot.val,slot_val_ref_prev,slot_val_ref_prev);
 
-        // Если поток успешно выполнил
-        // транзакцию, ничего больше не происходит.
-        // В противном случае, необходимо проверить
-        // канал на наличие нового значения
-	        if cas.exec(&guard) {
-	            return Err(Empty);
-	        }
-	        continue;
-		    }
+			// Если поток успешно выполнил
+			// транзакцию, ничего больше не происходит.
+			// В противном случае, необходимо проверить
+			// канал на наличие нового значения
+			if mwcas.transaction() {
+			    return Err;
+			}
+			    continue;
+			}
 
-	// На
-    let next = shared
-        .pos
-        .read(&guard)
-        - shared.buffer.len();
+			let next = shared
+			    .pos
+			    .read(&guard)
+			    - shared.buffer.len();
 
-    let missed = next - self.next;
+			let missed = next - self.next;
 
-    // The receiver is slow but no values have been missed
-    if missed == 0 {
-        self.next = self.next.wrapping_add(1);
-        return Ok((*slot.val.read(&guard)).clone());
+			if missed == 0 {
+			    self.next = self.next + 1;
+		mwcas.cas(&shared.closed,closed_old,closed_old);
+		mwcas.cas(&shared.waiters,waiters_old,waiters_old);
+		mwcas.cas(&slot.pos,slot_pos_old,slot_pos_old);
+		mwcas.cas(&slot.val,slot_val_ref_prev,slot_val_ref_prev);
+				if mwcas.transaction(){
+					return *slot_val_ref_prev;
+				} else{
+					self.next = self.next - 1;
+					continue;
+				}
+			}
+
+			self.next = next;
+		mwcas.cas(&shared.closed,closed_old,closed_old);
+		mwcas.cas(&shared.waiters,waiters_old,waiters_old);
+		mwcas.cas(&slot.pos,slot_pos_old,slot_pos_old);
+		mwcas.cas(&slot.val,slot_val_ref_prev,slot_val_ref_prev);
+
+	    if mwcas.transaction(){
+			return Err(missed);
+		} else{
+			continue;
+		}
     }
 
-    self.next = next;
-
-    return Err(TryRecvError::Lagged(missed));
-    }
-
-	self.next = self.next.wrapping_add(1);
+	self.next = self.next. + 1;
+	mwcas.cas(&shared.closed,closed_old,closed_old);
+	mwcas.cas(&shared.waiters,waiters_old,waiters_old);
+	mwcas.cas(&slot.pos,slot_pos_old,slot_pos_old);
+	mwcas.cas(&slot.val,slot_val_ref_prev,slot_val_ref_prev);
+	if mwcas.transaction(){
+		return *slot_val_ref_prev;
+	} else{
+		self.next = self.next - 1;
+		continue;
+	}
 	break;
 }
-
-Ok((*slot.val.read(&guard)).clone())
 }
+
 ```
 Таблица 12 – Алгоритм неблокирующего получения сообщения с иcпользованием транзакционной памяти.
 
@@ -1045,4 +1082,3 @@ Ok((*slot.val.read(&guard)).clone())
 #pagebreak()
 
 #HeaderBlank("Приложение",1)
-#lorem(30)
